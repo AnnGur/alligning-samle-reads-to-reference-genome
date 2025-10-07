@@ -4,40 +4,38 @@ conda install -c conda-forge liblzma=5.8.1
 conda install -c bioconda samtools=1.22.1 
 conda install -c bioconda perl
 conda install -c conda-forge gnuplot
-conda install -c conda-forge r-rcpparmadillo
-## in R
-conda install -c bioconda bioconductor-deseq2
+# conda install -c conda-forge r-rcpparmadillo
+# conda install -c bioconda bioconductor-deseq2
 
-STAR --runThreadN 8 --runMode genomeGenerate \
-  --genomeDir star_mm10 \
-  --genomeFastaFiles mm10.fa \
-  --sjdbGTFfile gencode.vM38.annotation.gtf \
-  --sjdbOverhang 100
-
+# STAR --runThreadN 8 --runMode genomeGenerate \
+#   --genomeDir star_mm10 \
+#   --genomeFastaFiles mm10.fa \
+#   --sjdbGTFfile gencode.vM38.annotation.gtf \
+#   --sjdbOverhang 100
 
 
-gencode.v38.chr_patch_hapl_scaff.annotation.gtf
-gencode.v38.primary_assembly.annotation.gtf
+# gencode.v49.chr_patch_hapl_scaff.annotation.gtf
+# gencode.v38.chr_patch_hapl_scaff.annotation.gtf
+# gencode.v38.primary_assembly.annotation.gtf
 
-extract_splice_sites.py gencode.v38.primary_assembly.annotation.gtf > gencode.vM38.splice_sites.txt
-extract_exons.py gencode.v38.primary_assembly.annotation.gtf > gencode.vM38.exon_sites.txt
+extract_splice_sites.py gencode.v49.chr_patch_hapl_scaff.annotation.gtf > gencode.v49.splice_sites.txt
+extract_exons.py gencode.v49.chr_patch_hapl_scaff.annotation.gtf > gencode.v49.exon_sites.txt
 
 
 ################# HUMAN
-hisat2-build --threads 3 \
-             hg38.fa hg38_hisat2_index
+hisat2-build GCA_000001405.29_GRCh38.p14_genomic.fna hg38_hisat2_index
 
-hisat2 -p 8 -x hg38_hisat2_index \
-       -1 reads_1.fq.gz -2 reads_2.fq.gz \
-       --rg-id hg38_test --rg SM:hg38_test --rg LB:lib1 --rg PL:ILLUMINA \
-       --summary-file hisat2_hg38_summary_ILLUMINA.txt \
-
-hisat2 -p 8 --dta -x hg38_hisat2_index \
-  --known-splicesite-infile gencode.vM38.splice_sites.txt \
+hisat2 -p 8 --dta -x 29_GRCh38_index \
+  --known-splicesite-infile gencode.v49.splice_sites.txt \
   -1 reads_1.fq.gz -2 reads_2.fq.gz \
-  --summary-file hisat2_hg38_summary_with_splicesites.txt \
+  --summary-file 29_GRCh38_summary_with_splicesites_v49.txt \
   | samtools view -@ 8 -b \
-  | samtools sort -@ 8 -o hg38_Test_Aligned.sortedByChrPosition.bam
+  | samtools sort -@ 8 -o 29_GRCh38_Test_Aligned.sortedByChrPosition.bam
+
+
+featureCounts -T 8 -p -t exon -g gene_id \
+  -a gencode.vM38.annotation.gtf \
+  -o 27_GRCm39_featureCounts.txt 27_GRCm39_Test_Aligned.sortedByChrPosition.bam
 
 samtools index hg38_Test_Aligned.sortedByChrPosition.bam
 
