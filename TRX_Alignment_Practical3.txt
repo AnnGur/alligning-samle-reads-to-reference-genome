@@ -1,0 +1,176 @@
+#TRANSCRIPTOME RNA-SEQ DATA READ ALIGNMENT TO HUMAN GENOME USING STAR & HISAT2:
+
+#Practical Exercise #3: Try out STAR or HISAT2 on Test RNA-seq transcriptome data
+
+1. Mouse mm10 data (fastq: two small data sets to compare, 10Mb)
+2. Human GRCH38 data (fastq: two ~small-medium data sets to compare, 20-31Mb)
+3. Output: .bam file
+4. Optional next steps which we’ll do in Practical Exercise #4: differential expression and visualization: run featurecounts, samtools (to QC), DEseq2 (to analyze differential expression), build a Volcano plot in R
+
+
+#Reads: raw FASTQ files (.fastq/.fastq.gz) — single-end (R1) or paired-end (R1,R2).
+#Reference genome: human GRCh38/hg38 FASTA.
+#Annotation (recommended): GTF/GFF3 (e.g., GENCODE) to improve splice junction handling.
+#Index: (You build an index once) from the genome (and, for STAR, usually with the GTF)
+
+# STAR: https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf 
+https://github.com/alexdobin/STAR
+
+
+# HISAT2: https://daehwankimlab.github.io/hisat2/manual/ 
+https://daehwankimlab.github.io/hisat2/
+
+#HISAT2 provides prebuilt human indexes you can download
+
+
+#Or run STAR or HISAT2 in Galaxy: https://galaxy-main.usegalaxy.org/
+
+--------------------------------------------------------------------------------------------
+
+
+#TRIAL DATA: 
+# Two small RNA-seq FASTQs (<100 KB each), from GTN (mouse, GSE60450 subset)
+wget -O reads_1.fq.gz https://zenodo.org/record/4249555/files/SRR1552444.fastq.gz
+wget -O reads_2.fq.gz https://zenodo.org/record/4249555/files/SRR1552450.fastq.gz
+
+# Human, paired-end (chr21-only subset; >10 MB each; 20-31Mb)
+wget -O reads_1.fq.gz https://zenodo.org/record/1173306/files/eipl_A.1.fastq.gz
+wget -O reads_2.fq.gz https://zenodo.org/record/1173306/files/eipl_A.2.fastq.gz
+
+
+
+--------------------------------------------------------------------------------------------
+
+#STAR: fast, highly accurate spliced aligner (great for novel junctions; de-facto standard)
+#INPUT: fastq
+#INDEXING: genome FASTA + GTF (creates a STAR genome directory; set sjdbOverhang = read_length-1).
+#INPUT: mapping: the FASTQ reads + the STAR genome index directory
+#OUTPUT: output BAM (alignments)
+
+# index once (GRCh38 + GTF) general running commands:
+
+https://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/
+
+STAR --runThreadN 16 --runMode genomeGenerate \
+  --genomeDir GRCh38_star_index \
+  --genomeFastaFiles GRCh38.primary_assembly.fa \
+  --sjdbGTFfile gencode.vXX.annotation.gtf --sjdbOverhang 100
+
+# map (paired-end example) → sorted BAM + basic counts
+STAR --runThreadN 16 --genomeDir GRCh38_star_index \
+  --readFilesIn reads_1.fq.gz reads_2.fq.gz --readFilesCommand zcat \
+  --twopassMode Basic --outSAMtype BAM SortedByCoordinate \
+  --quantMode GeneCounts --outFileNamePrefix sample1_
+
+
+#TEST WITH MOUTSE mm10 data set:
+https://hgdownload.cse.ucsc.edu/goldenPath/mm10/bigZips/
+
+# 1) Build STAR index once (adjust GTF version & overhang = read_len-1; 100 is fine for 100bp reads)
+STAR --runThreadN 8 --runMode genomeGenerate \
+  --genomeDir star_mm10 \
+  --genomeFastaFiles mm10.primary_assembly.fa \
+  --sjdbGTFfile gencode.vMxx.annotation.gtf \
+  --sjdbOverhang 100
+
+# 2) Map (paired-end), output sorted BAM + basic gene counts
+STAR --runThreadN 8 --genomeDir star_mm10 \
+  --readFilesIn reads_1.fq.gz reads_2.fq.gz \
+  --readFilesCommand zcat \
+  --twopassMode Basic \
+  --outSAMtype BAM SortedByCoordinate \
+  --quantMode GeneCounts \
+  --outFileNamePrefix mm10_test_
+
+# Results: mm10_test_Aligned.sortedByCoord.out.bam, mm10_test_Log.final.out, mm10_test_ReadsPerGene.out.tab
+
+
+#TEST WITH HUMAN (GRCh38) data set:
+# 1) Build STAR index (use matching GENCODE GTF; set overhang = read_len-1)
+STAR --runThreadN 8 --runMode genomeGenerate \
+  --genomeDir star_GRCh38 \
+  --genomeFastaFiles GRCh38.primary_assembly.fa \
+  --sjdbGTFfile gencode.vXX.annotation.gtf \
+  --sjdbOverhang 100
+
+# 2) Map → sorted BAM + basic counts
+STAR --runThreadN 8 --genomeDir star_GRCh38 \
+  --readFilesIn reads_1.fq.gz reads_2.fq.gz \
+  --readFilesCommand zcat \
+  --twopassMode Basic \
+  --outSAMtype BAM SortedByCoordinate \
+  --quantMode GeneCounts \
+  --outFileNamePrefix grch38_test_
+
+
+--------------------------------------------------------------------------------------------
+
+#HISAT2: memory-efficient spliced aligner (excellent accuracy; SNP/known splice aware)
+#INPUT: fastq
+#INDEXING: indexing: genome FASTA (optionally add splice sites/exons derived from the GTF; can also build SNP-aware indexes).
+#INPUT: mapping: the FASTQ reads + the HISAT2 genome index
+(optional at run time: --known-splicesite-infile splicesites.txt)
+#OUTPUT: output BAM (alignments)
+
+# general running commands:
+
+# build index once
+hisat2-build GRCh38.primary_assembly.fa GRCh38_hisat2
+
+# (optional) add known splice sites for better junction mapping
+hisat2_extract_splice_sites.py gencode.vXX.annotation.gtf > splicesites.txt
+
+# map (paired-end) → coordinate-sorted BAM
+
+hisat2 -p 16 --dta --known-splicesite-infile splicesites.txt \
+  -x GRCh38_hisat2 -1 reads_1.fq.gz -2 reads_2.fq.gz | \
+  samtools sort -@ 8 -o sample1.bam
+samtools index sample1.bam
+
+
+#TEST WITH MOUTSE mm10 data set:
+
+# 1) (Optional, recommended) get known splice sites from the GTF
+hisat2_extract_splice_sites.py gencode.vMxx.annotation.gtf > mm10_splicesites.txt
+
+# 2) Build HISAT2 index once
+hisat2-build mm10.primary_assembly.fa mm10_hisat2
+
+# 3) Map and produce a sorted BAM
+hisat2 -p 8 --dta \
+  --known-splicesite-infile mm10_splicesites.txt \
+  -x mm10_hisat2 -1 reads_1.fq.gz -2 reads_2.fq.gz | \
+  samtools sort -@ 8 -o mm10_test.bam
+samtools index mm10_test.bam
+# Check mapping stats:
+samtools flagstat mm10_test.bam
+
+
+#TEST WITH HUMAN (GRCh38) data set:
+
+# 1) Known splice sites (recommended)
+hisat2_extract_splice_sites.py gencode.vXX.annotation.gtf > grch38_splicesites.txt
+
+# 2) Build index
+hisat2-build GRCh38.primary_assembly.fa GRCh38_hisat2
+
+# 3) Map → sorted BAM + index
+hisat2 -p 8 --dta \
+  --known-splicesite-infile grch38_splicesites.txt \
+  -x GRCh38_hisat2 -1 reads_1.fq.gz -2 reads_2.fq.gz | \
+  samtools sort -@ 8 -o grch38_test.bam
+samtools index grch38_test.bam
+
+
+----------------------------------------------------------------------------------
+#OPTIONAL: if you want to see your .bam alignment files:
+
+# run feature counts
+# samtools QC
+# DEseq2 differential expression
+# Volcano plot in R
+
+
+
+
+export PATH="/Users/anna_gurina/STAR-2.7.11b/bin/MacOSX_x86_64:$PATH"
